@@ -119,7 +119,7 @@ jobs:
         with:
           name: hps-connect-${{ steps.version.outputs.name }}-${{ steps.version.outputs.code }}
           path: dist/*
-          retention-days: 30
+          retention-days: 2 # private রিপোতে ফ্রি স্টোরেজ ৫০০ MB, তাই অল্প দিন রাখা
 
       - name: Publish GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
