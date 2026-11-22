@@ -1,0 +1,92 @@
+rules_version = '2';
+
+// HPS Connect: প্রাথমিক সিকিউরিটি রুলস।
+// রোল আইডি lib/models/user_role.dart-এর সাথে মিলিয়ে রাখুন।
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- সহায়ক ফাংশন ----------
+    function signedIn() {
+      return request.auth != null;
+    }
+    function me() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    function isActive() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && me().active == true;
+    }
+    function role() {
+      return me().role;
+    }
+    function hasRole(roles) {
+      return isActive() && role() in roles;
+    }
+    function isSuperAdmin() {
+      return hasRole(['super_admin']);
+    }
+    // নোটিশ/জরুরি সতর্কবার্তা পাঠাতে পারে
+    function isLeader() {
+      return hasRole(['principal', 'super_admin', 'junior_incharge',
+                      'high_incharge', 'residential_incharge']);
+    }
+    function validRole(r) {
+      return r in ['principal', 'junior_incharge', 'high_incharge',
+                   'residential_incharge', 'super_admin', 'teacher'];
+    }
+
+    // ---------- রোল তালিকা ----------
+    match /roles/{roleId} {
+      allow read: if isActive();
+      allow write: if isSuperAdmin();
+    }
+
+    // ---------- ব্যবহারকারী ----------
+    // users/{uid}: name, email, role, section, active, fcmTokens, lastSeenAt
+    match /users/{uid} {
+      // নিজের প্রোফাইল সবসময় পড়া যায় (না হলে "অ্যাকাউন্ট চালু হয়নি" দেখানো যায় না);
+      // সক্রিয় স্টাফরা স্টাফ ডিরেক্টরি দেখতে পারে।
+      allow read: if (signedIn() && request.auth.uid == uid) || isActive();
+
+      // শুধু সুপার অ্যাডমিন অ্যাকাউন্ট তৈরি/মুছে ফেলতে বা রোল বদলাতে পারে।
+      allow create: if isSuperAdmin() && validRole(request.resource.data.role);
+      allow delete: if isSuperAdmin();
+      allow update: if (isSuperAdmin() && validRole(request.resource.data.role))
+        // নিজে শুধু এই ফিল্ডগুলো বদলাতে পারে, রোল বা active নয়।
+        || (isActive() && request.auth.uid == uid
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['name', 'phone', 'photoUrl', 'fcmTokens', 'lastSeenAt']));
+    }
+
+    // ---------- নোটিশ ও জরুরি সতর্কবার্তা ----------
+    match /notices/{noticeId} {
+      allow read: if isActive();
+      allow create: if isLeader() && request.resource.data.authorId == request.auth.uid;
+      allow update, delete: if isSuperAdmin()
+        || (isLeader() && resource.data.authorId == request.auth.uid);
+
+      // পড়া/স্বীকৃতি ট্র্যাকিং: notices/{id}/reads/{uid}
+      match /reads/{readerId} {
+        allow read: if isLeader() || (isActive() && request.auth.uid == readerId);
+        allow create, update: if isActive() && request.auth.uid == readerId;
+      }
+    }
+
+    // ---------- ছুটির আবেদন ----------
+    match /leaveRequests/{id} {
+      allow read: if isActive()
+        && (resource.data.userId == request.auth.uid || isLeader());
+      allow create: if isActive()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.status == 'pending';
+      // অনুমোদন/বাতিল শুধু নেতৃত্বের রোল
+      allow update: if isLeader();
+    }
+
+    // বাকি সব কিছু ডিফল্টভাবে বন্ধ। নতুন ফিচার যোগ করার সময় এখানে রুল যোগ করুন।
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

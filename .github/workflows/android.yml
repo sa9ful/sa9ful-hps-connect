@@ -1,0 +1,113 @@
+name: Android build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write # ট্যাগ থেকে GitHub Release তৈরির জন্য
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.50.1
+          cache: true
+
+      - name: Firebase config (google-services.json)
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON_BASE64" ]; then
+            echo "$GOOGLE_SERVICES_JSON_BASE64" | base64 --decode > android/app/google-services.json
+            echo "google-services.json যোগ হয়েছে।"
+          else
+            echo "::warning::GOOGLE_SERVICES_JSON_BASE64 secret নেই। APK তৈরি হবে, কিন্তু অ্যাপে Firebase কাজ করবে না।"
+          fi
+
+      - name: Release signing (keystore)
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/upload-keystore.jks
+            cat > android/key.properties <<PROPS
+          storePassword=$ANDROID_KEYSTORE_PASSWORD
+          keyPassword=$ANDROID_KEY_PASSWORD
+          keyAlias=$ANDROID_KEY_ALIAS
+          storeFile=upload-keystore.jks
+          PROPS
+            echo "রিলিজ কীস্টোর দিয়ে সাইন হবে।"
+          else
+            echo "::warning::ANDROID_KEYSTORE_BASE64 secret নেই। রিলিজ বিল্ড debug কী দিয়ে সাইন হবে (Play Store-এ আপলোড করা যাবে না)।"
+          fi
+
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+
+      - name: Version
+        id: version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            NAME="${GITHUB_REF_NAME#v}"
+          else
+            NAME="$(grep '^version:' pubspec.yaml | sed 's/version: *//; s/+.*//')"
+          fi
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "code=${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+
+      - name: Build debug APK
+        run: flutter build apk --debug --build-name=${{ steps.version.outputs.name }} --build-number=${{ steps.version.outputs.code }}
+
+      - name: Build release APK
+        run: flutter build apk --release --build-name=${{ steps.version.outputs.name }} --build-number=${{ steps.version.outputs.code }}
+
+      - name: Build release AAB (Google Play)
+        run: flutter build appbundle --release --build-name=${{ steps.version.outputs.name }} --build-number=${{ steps.version.outputs.code }}
+
+      - name: Rename outputs
+        run: |
+          mkdir -p dist
+          V=${{ steps.version.outputs.name }}
+          cp build/app/outputs/flutter-apk/app-debug.apk   dist/hps-connect-$V-debug.apk
+          cp build/app/outputs/flutter-apk/app-release.apk dist/hps-connect-$V-release.apk
+          cp build/app/outputs/bundle/release/app-release.aab dist/hps-connect-$V-release.aab
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hps-connect-${{ steps.version.outputs.name }}-${{ steps.version.outputs.code }}
+          path: dist/*
+          retention-days: 30
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+
+      - name: Remove secrets from runner
+        if: always()
+        run: rm -f android/app/google-services.json android/app/upload-keystore.jks android/key.properties
