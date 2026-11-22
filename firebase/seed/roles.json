@@ -1,0 +1,8 @@
+{
+  "principal": { "labelBn": "প্রিন্সিপাল", "labelEn": "Principal", "rank": 1 },
+  "super_admin": { "labelBn": "সুপার অ্যাডমিন", "labelEn": "Super Admin", "rank": 2 },
+  "junior_incharge": { "labelBn": "জুনিয়র সেকশন ইনচার্জ", "labelEn": "Junior Section In-Charge", "rank": 3 },
+  "high_incharge": { "labelBn": "হাই সেকশন ইনচার্জ", "labelEn": "High Section In-Charge", "rank": 3 },
+  "residential_incharge": { "labelBn": "আবাসিক ইনচার্জ", "labelEn": "Residential In-Charge", "rank": 3 },
+  "teacher": { "labelBn": "শিক্ষক/স্টাফ", "labelEn": "Teacher/Staff", "rank": 4 }
+}
