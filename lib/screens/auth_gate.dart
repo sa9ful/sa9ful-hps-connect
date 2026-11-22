@@ -4,6 +4,7 @@ import '../app_state.dart';
 import '../data/firebase_backend.dart';
 import '../models/app_user.dart';
 import '../models/user_role.dart';
+import '../services/update_service.dart';
 import 'principal_shell.dart';
 import 'login_screen.dart';
 import 'role_selection_screen.dart';
@@ -30,7 +31,10 @@ class _AuthGateState extends State<AuthGate> {
   void initState() {
     super.initState();
     Future.delayed(widget.splashDuration, () {
-      if (mounted) setState(() => _splashDone = true);
+      if (!mounted) return;
+      setState(() => _splashDone = true);
+      // releases রিপোর version.json দেখে নতুন ভার্সন থাকলে জানায়।
+      checkForUpdateAndPrompt(context);
     });
   }
 

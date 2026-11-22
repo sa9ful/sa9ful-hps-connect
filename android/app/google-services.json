@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "354441706664",
+    "project_id": "hps-connect-38a5e",
+    "storage_bucket": "hps-connect-38a5e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:354441706664:android:283c0992af9e6de6a0569d",
+        "android_client_info": {
+          "package_name": "com.hps.connect"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCzMHiFy1bDnVZnLp_8DMVg9DhwCRgj8BE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

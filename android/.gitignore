@@ -14,4 +14,3 @@ key.properties
 **/*.jks
 
 # Firebase কনফিগ ও সাইনিং ফাইল কখনো কমিট করবেন না
-/app/google-services.json
