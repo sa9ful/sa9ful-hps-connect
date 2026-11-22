@@ -1,59 +1,81 @@
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../app_state.dart';
+import '../data/firebase_backend.dart';
 import '../models/app_user.dart';
-import '../services/auth_service.dart';
-import '../services/push_service.dart';
-import 'home_screen.dart';
+import '../models/user_role.dart';
+import 'principal_shell.dart';
 import 'login_screen.dart';
+import 'role_selection_screen.dart';
+import 'splash_screen.dart';
+import 'teacher_shell.dart';
 
-/// লগইন অবস্থা ও Firestore প্রোফাইল দেখে সঠিক স্ক্রিনে পাঠায়।
-class AuthGate extends StatelessWidget {
-  const AuthGate({super.key});
+/// Splash → Login → Role Selection → রোল অনুযায়ী ড্যাশবোর্ড।
+class AuthGate extends StatefulWidget {
+  const AuthGate({
+    super.key,
+    this.splashDuration = const Duration(milliseconds: 1600),
+  });
+  final Duration splashDuration;
+
+  @override
+  State<AuthGate> createState() => _AuthGateState();
+}
+
+class _AuthGateState extends State<AuthGate> {
+  bool _splashDone = false;
+  Stream<AppUser?>? _userStream;
+
+  @override
+  void initState() {
+    super.initState();
+    Future.delayed(widget.splashDuration, () {
+      if (mounted) setState(() => _splashDone = true);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    final auth = AuthService();
-    return StreamBuilder<User?>(
-      stream: auth.authStateChanges(),
+    final state = AppScope.of(context);
+    _userStream ??= state.backend.currentUser();
+    if (!_splashDone) return const SplashScreen();
+
+    return StreamBuilder<AppUser?>(
+      stream: _userStream,
       builder: (context, snap) {
+        if (snap.hasError) {
+          final e = snap.error;
+          return _NoProfile(email: e is NoProfileException ? e.email : '$e');
+        }
         if (snap.connectionState == ConnectionState.waiting) {
-          return const _Loading();
+          return const SplashScreen();
         }
         final user = snap.data;
-        if (user == null) return LoginScreen(auth: auth);
-
-        PushService.registerDevice(user.uid);
-        return StreamBuilder<AppUser?>(
-          stream: auth.profile(user.uid),
-          builder: (context, profileSnap) {
-            if (profileSnap.connectionState == ConnectionState.waiting) {
-              return const _Loading();
-            }
-            final profile = profileSnap.data;
-            if (profileSnap.hasError || profile == null || !profile.active) {
-              return _NoProfile(auth: auth, email: user.email ?? '');
-            }
-            return HomeScreen(user: profile, auth: auth);
-          },
-        );
+        if (user == null) {
+          if (state.activeRole != null) {
+            WidgetsBinding.instance.addPostFrameCallback(
+              (_) => state.selectRole(null),
+            );
+          }
+          return const LoginScreen();
+        }
+        final allowed = user.allowedRoles;
+        final role = state.activeRole;
+        if (role == null || !allowed.contains(role)) {
+          return RoleSelectionScreen(allowed: allowed);
+        }
+        return switch (role) {
+          UserRole.principal ||
+          UserRole.superAdmin => PrincipalShell(user: user, role: role),
+          _ => TeacherShell(user: user, role: role),
+        };
       },
     );
   }
 }
 
-class _Loading extends StatelessWidget {
-  const _Loading();
-
-  @override
-  Widget build(BuildContext context) =>
-      const Scaffold(body: Center(child: CircularProgressIndicator()));
-}
-
 class _NoProfile extends StatelessWidget {
-  const _NoProfile({required this.auth, required this.email});
-
-  final AuthService auth;
+  const _NoProfile({required this.email});
   final String email;
 
   @override
@@ -79,7 +101,7 @@ class _NoProfile extends StatelessWidget {
               ),
               const SizedBox(height: 24),
               OutlinedButton(
-                onPressed: auth.signOut,
+                onPressed: AppScope.backendOf(context).signOut,
                 child: const Text('লগআউট'),
               ),
             ],

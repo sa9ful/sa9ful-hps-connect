@@ -68,7 +68,8 @@ service cloud.firestore {
 
       // পড়া/স্বীকৃতি ট্র্যাকিং: notices/{id}/reads/{uid}
       match /reads/{readerId} {
-        allow read: if isLeader() || (isActive() && request.auth.uid == readerId);
+        // Viewed: 112/150 গণনার জন্য সক্রিয় সবাই পড়তে পারে
+        allow read: if isActive();
         allow create, update: if isActive() && request.auth.uid == readerId;
       }
     }
@@ -82,6 +83,65 @@ service cloud.firestore {
         && request.resource.data.status == 'pending';
       // অনুমোদন/বাতিল শুধু নেতৃত্বের রোল
       allow update: if isLeader();
+    }
+
+    // collection group query: আমি কোন নোটিশগুলো দেখেছি (Unread Notices গণনা)
+    match /{path=**}/reads/{readerId} {
+      allow read: if isActive() && resource.data.uid == request.auth.uid;
+    }
+
+    // ---------- মিটিং ----------
+    // meetings/{id}: title, startAt, location, createdBy, joined[]
+    match /meetings/{id} {
+      allow read: if isActive();
+      allow create: if isLeader() && request.resource.data.createdBy == request.auth.uid;
+      allow delete: if isSuperAdmin() || (isLeader() && resource.data.createdBy == request.auth.uid);
+      allow update: if isSuperAdmin()
+        || (isLeader() && resource.data.createdBy == request.auth.uid)
+        // যে কেউ শুধু নিজেকে joined তালিকায় যোগ করতে পারে
+        || (isActive()
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['joined'])
+            && request.resource.data.joined.toSet().difference(resource.data.joined.toSet())
+                 .hasOnly([request.auth.uid]));
+    }
+
+    // ---------- টাস্ক ----------
+    // tasks/{id}: title, dueAt, assigneeId, assignedById, done
+    match /tasks/{id} {
+      allow read: if isActive()
+        && (resource.data.assigneeId == request.auth.uid
+            || resource.data.assignedById == request.auth.uid
+            || isLeader());
+      // যে কেউ নিজের জন্য টাস্ক বানাতে পারে; অন্যকে দিতে পারে শুধু নেতৃত্বের রোল
+      allow create: if isActive()
+        && request.resource.data.assignedById == request.auth.uid
+        && (request.resource.data.assigneeId == request.auth.uid || isLeader());
+      allow update: if isActive()
+        && (resource.data.assignedById == request.auth.uid
+            || (resource.data.assigneeId == request.auth.uid
+                && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['done'])));
+      allow delete: if isActive() && resource.data.assignedById == request.auth.uid;
+    }
+
+    // ---------- চ্যাট ----------
+    // chats/{id}: name, type ('personal'|'group'), members[], lastMessage, lastAt, unread{uid: n}
+    function isMember(chatId) {
+      return request.auth.uid in
+        get(/databases/$(database)/documents/chats/$(chatId)).data.members;
+    }
+    match /chats/{chatId} {
+      allow read: if isActive() && request.auth.uid in resource.data.members;
+      allow create: if isActive() && request.auth.uid in request.resource.data.members;
+      allow update: if isActive() && request.auth.uid in resource.data.members
+        && request.resource.data.members == resource.data.members;
+      allow delete: if isSuperAdmin();
+
+      match /messages/{messageId} {
+        allow read: if isActive() && isMember(chatId);
+        allow create: if isActive() && isMember(chatId)
+          && request.resource.data.senderId == request.auth.uid;
+        allow update, delete: if false;
+      }
     }
 
     // বাকি সব কিছু ডিফল্টভাবে বন্ধ। নতুন ফিচার যোগ করার সময় এখানে রুল যোগ করুন।

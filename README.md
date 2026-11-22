@@ -23,17 +23,41 @@ Flutter + Firebase (Authentication, Cloud Firestore, Cloud Messaging)।
 
 কোনো Secret ছাড়াই GitHub Actions APK বানায়। **Actions → Android build → সর্বশেষ রান → Artifacts**
 থেকে zip নামিয়ে `hps-connect-…-release.apk` ফোনে ইনস্টল করুন।
-Secret ছাড়া বানানো APK খুললে "Firebase সেটআপ বাকি" স্ক্রিন দেখাবে, লগইন কাজ করবে না।
-লগইন চালু করতে নিচের ধাপ ১ ও ২ করুন।
+
+Secret ছাড়া বানানো APK **ডেমো মোডে** চলে: যেকোনো আইডি দিয়ে Login চাপলে নমুনা ডেটা দিয়ে
+সব স্ক্রিন (নোটিশ, চ্যাট, মিটিং, টাস্ক, ছুটির আবেদন, প্রিন্সিপাল ড্যাশবোর্ড) ঘুরে দেখা যায়।
+কোনো ডেটা সার্ভারে যায় না। আসল লগইন ও ডেটার জন্য নিচের ধাপ ১ ও ২ করুন।
+
+## স্ক্রিন (ডিজাইন অনুযায়ী)
+
+Splash, Login (User ID/Email, Google), Role Selection, Teacher Home, Principal Dashboard,
+Side Menu, Notice Board, Notice Details (স্বীকৃতি ও Viewed গণনা), Chat (Personal/Group),
+Meetings, Tasks, Leave Application। এছাড়া Directory, Send Notice, Schedule Meeting, Assign Task।
+Documents, Events, Polls, Reports, Profile, Settings এখন "শীঘ্রই আসছে" স্ক্রিন দেখায়।
+
+ডিজাইন থেকে নেওয়া কিছু অনুমান:
+
+- **লোগো** (`assets/images/logo.png`, অ্যাপ আইকন) ডিজাইনের ছবি থেকে কেটে নেওয়া, তাই একটু ঝাপসা।
+  আসল লোগোর PNG (অন্তত 512×512) দিলে বদলে দেওয়া যাবে। Splash-এ স্কুল ভবনের ছবির জায়গায় আপাতত আইকন।
+- **User ID** দিয়ে লগইন: '@' ছাড়া আইডি লিখলে `আইডি@hps.edu.bd` ইমেইল ধরা হয়
+  (`lib/data/backend.dart`-এর `kUserIdEmailDomain`)। স্কুলের আসল ডোমেইন হলে সেটা বসান।
+- **Role Selection**: লগইনের পর দেখায়; শুধু Firestore-এ দেওয়া রোলগুলো চাপা যায় (নিরাপত্তার জন্য,
+  কেউ নিজে রোল বেছে প্রিন্সিপাল হতে পারবে না)। কারো একাধিক দায়িত্ব থাকলে `roles` অ্যারেতে দিন।
+- প্রিন্সিপাল ও সুপার অ্যাডমিন Principal Dashboard পান; বাকিরা Teacher Home।
+  ইনচার্জরা নোটিশ পাঠাতে ও মিটিং ডাকতে পারেন।
+- "Staff" গণনা: যাদের `department` = `Staff`; বাকিরা Teachers।
 
 ### ধাপ ১: Firebase প্রজেক্ট
 
 1. https://console.firebase.google.com এ নতুন প্রজেক্ট খুলুন (যেমন `hps-connect`)।
 2. **Add app → Android**, package name দিন `com.hps.connect`। `google-services.json` ডাউনলোড করুন।
 3. **Authentication → Sign-in method → Email/Password** চালু করুন।
+   Google লগইনের জন্য **Google** প্রোভাইডারও চালু করুন এবং **Project settings → Your apps → Android**-এ
+   রিলিজ কীস্টোরের SHA-1 ও SHA-256 যোগ করুন (`keytool -list -v -keystore upload-keystore.jks -alias upload`)।
+   Google দিয়ে ঢুকলেও `users/{uid}` প্রোফাইল লাগবে, না থাকলে "অ্যাকাউন্ট চালু হয়নি" দেখাবে।
 4. **Firestore Database → Create database** (অঞ্চল: `asia-south1` বা কাছের কোনোটি)।
 5. **Firestore → Rules**-এ `firebase/firestore.rules` ফাইলের লেখা পেস্ট করে Publish করুন
-   (অথবা Firebase CLI দিয়ে `firebase deploy --only firestore`)।
+   (অথবা Firebase CLI দিয়ে `firebase deploy --only firestore`, এতে `firestore.indexes.json`-এর index-ও যায়)।
 
 ### ধাপ ২: প্রথম সুপার অ্যাডমিন
 
@@ -45,10 +69,27 @@ Secret ছাড়া বানানো APK খুললে "Firebase সে�
    - `email` (string): ইমেইল
    - `role` (string): `super_admin`
    - `active` (boolean): `true`
+   - ঐচ্ছিক: `department` (string, যেমন `Science`, `Staff`), `section` (`junior`/`high`/`residential`),
+     `roles` (array, অতিরিক্ত রোল)
 3. বাকি স্টাফদের জন্য একইভাবে Authentication-এ ইউজার তৈরি করে `users/{uid}` ডকুমেন্টে উপযুক্ত `role` দিন।
    (অ্যাপের ভেতরে অ্যাডমিন প্যানেল পরের ধাপে আসবে।)
 
 ঐচ্ছিক: `roles` কালেকশনে `firebase/seed/roles.json`-এর মানগুলো রাখতে পারেন।
+
+## Firestore ডেটা
+
+| কালেকশন | মূল ফিল্ড |
+|---|---|
+| `users/{uid}` | name, email, role, roles[], department, section, active, fcmTokens[] |
+| `notices/{id}` | title, body, important, section, authorId, authorName, authorRole, createdAt, attachments[] |
+| `notices/{id}/reads/{uid}` | uid, name, viewedAt, acknowledgedAt |
+| `meetings/{id}` | title, startAt, location, createdBy, joined[] |
+| `tasks/{id}` | title, dueAt, assigneeId, assignedById, done |
+| `chats/{id}` | name, type (`personal`/`group`), members[], lastMessage, lastAt, unread{uid: n} |
+| `chats/{id}/messages/{id}` | text, senderId, senderName, sentAt |
+| `leaveRequests/{id}` | userId, userName, type, from, to, reason, status |
+
+নতুন চ্যাট/গ্রুপ খোলার স্ক্রিন এখনো নেই; আপাতত Firebase Console থেকে `chats` ডকুমেন্ট বানান।
 
 ## GitHub Secrets
 
@@ -113,13 +154,17 @@ flutter run
 
 ```
 lib/
-  main.dart                  Firebase চালু করা, অ্যাপের শুরু
-  theme.dart
-  models/user_role.dart      ছয়টি রোল ও অনুমতি
-  models/app_user.dart       users/{uid} ডকুমেন্ট
-  services/auth_service.dart লগইন, লগআউট, পাসওয়ার্ড রিসেট
-  services/push_service.dart FCM টোকেন সংরক্ষণ
-  screens/                   লগইন, হোম (রোলভিত্তিক), সেটআপ স্ক্রিন
+  main.dart                    Firebase চালু করা (না পারলে ডেমো মোড)
+  app_state.dart               বেছে নেওয়া রোল ও ব্যাকএন্ড
+  theme.dart                   নীল থিম
+  data/backend.dart            ডেটা ইন্টারফেস
+  data/firebase_backend.dart   Firebase Auth + Firestore
+  data/demo_backend.dart       নমুনা ডেটা
+  data/models.dart             Notice, Meeting, Task, Chat ...
+  models/user_role.dart        ছয়টি রোল ও অনুমতি
+  services/push_service.dart   FCM টোকেন সংরক্ষণ
+  screens/                     ১২টি স্ক্রিন
+  widgets/common.dart          লোগো, ট্যাব, টাইল, ব্যাজ
 firebase/
   firestore.rules            সিকিউরিটি রুলস
   seed/roles.json
@@ -127,6 +172,6 @@ firebase/
 
 ## পরবর্তী কাজ
 
-নোটিশ ও জরুরি সতর্কবার্তা, পড়া/স্বীকৃতি ট্র্যাকিং, চ্যাট, পোল, টাস্ক, মিটিং, ছুটির আবেদন,
-ডকুমেন্ট (Firebase Storage), প্রিন্সিপালের ড্যাশবোর্ড, সুপার অ্যাডমিন প্যানেল,
+জরুরি সতর্কবার্তা, নতুন চ্যাট/গ্রুপ খোলা, পোল, ইভেন্ট, ডকুমেন্ট ও নোটিশের ফাইল (Firebase Storage),
+ছুটির আবেদন অনুমোদন, Viewed তালিকা, রিপোর্ট, প্রোফাইল, সুপার অ্যাডমিন প্যানেল (ইউজার তৈরি),
 এবং নোটিফিকেশন পাঠানোর Cloud Functions।
