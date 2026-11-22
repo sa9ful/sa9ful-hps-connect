@@ -135,6 +135,7 @@ jobs:
           VERSION: ${{ steps.version.outputs.name }}
           BUILD_NUMBER: ${{ steps.version.outputs.code }}
           INPUT_NOTES: ${{ inputs.release_notes }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if [ -z "$RELEASES_REPO_TOKEN" ]; then
@@ -150,6 +151,10 @@ jobs:
           fi
 
           NOTES="$INPUT_NOTES"
+          # ট্যাগ রিলিজে GitHub Release-এর লেখা নোট হিসেবে নেয়।
+          if [ -z "$NOTES" ] && [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            NOTES="$(gh release view "$GITHUB_REF_NAME" --json body -q .body 2>/dev/null || true)"
+          fi
           if [ -z "$NOTES" ]; then NOTES="$(git log -1 --pretty=%s)"; fi
 
           git clone "https://x-access-token:${RELEASES_REPO_TOKEN}@github.com/${RELEASES_REPO}.git" releases-repo
