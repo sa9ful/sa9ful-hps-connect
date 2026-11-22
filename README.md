@@ -47,6 +47,27 @@ Documents, Events, Polls, Reports, Profile, Settings এখন "শীঘ্র�
   ইনচার্জরা নোটিশ পাঠাতে ও মিটিং ডাকতে পারেন।
 - "Staff" গণনা: যাদের `department` = `Staff`; বাকিরা Teachers।
 
+## releases রিপোতে অটো-প্রকাশ ও অ্যাপে আপডেট
+
+প্রতিটি রিলিজে GitHub Actions আলাদা পাবলিক রিপো `sa9ful/hps-connect-releases`-এ `build-bot` নামে
+"Release x.y.z" কমিট করে: `HPS-Connect-x.y.z.apk`, `HPS-Connect-latest.apk`, `README.md`
+(সর্বশেষ ডাউনলোড লিংক) ও `version.json`।
+
+একবারের সেটআপ:
+
+1. খালি পাবলিক রিপো খুলুন: https://github.com/new?name=hps-connect-releases&visibility=public
+2. Fine-grained token বানান (শুধু ওই রিপো, **Contents: Read and write**), তারপর এই রিপোর
+   **Settings → Secrets and variables → Actions**-এ `RELEASES_REPO_TOKEN` নামে রাখুন।
+   (অন্য রিপো নাম চাইলে Actions variable `RELEASES_REPO` দিন।)
+3. রিলিজ কীস্টোরের Secret-গুলো (নিচে) দিন। না দিলে প্রতিবার আলাদা debug কী-তে সাইন হয়, ফলে নতুন APK
+   পুরনোটার ওপর ইনস্টল হবে না।
+
+রিলিজ করতে: `v1.0.1` ধরনের ট্যাগ push করুন, অথবা **Actions → Android build → Run workflow**-এ
+ভার্সন ও "কী নতুন" লিখে চালান।
+
+অ্যাপ চালুর পর `version.json` পড়ে; সেখানের `build_number` অ্যাপের চেয়ে বড় হলে "নতুন আপডেট এসেছে"
+ডায়ালগ দেখায়, "ডাউনলোড" চাপলে ব্রাউজারে নতুন APK নামে (`lib/services/update_service.dart`)।
+
 ### ধাপ ১: Firebase প্রজেক্ট
 
 1. https://console.firebase.google.com এ নতুন প্রজেক্ট খুলুন (যেমন `hps-connect`)।

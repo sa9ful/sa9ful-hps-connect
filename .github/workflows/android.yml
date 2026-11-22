@@ -6,6 +6,19 @@ on:
     tags: ['v*']
   pull_request:
   workflow_dispatch:
+    inputs:
+      publish:
+        description: 'releases রিপোতে APK পাঠাবে?'
+        type: boolean
+        default: true
+      version:
+        description: 'ভার্সন (যেমন 1.0.4)। খালি রাখলে pubspec.yaml থেকে নেবে'
+        type: string
+        default: ''
+      release_notes:
+        description: 'এই রিলিজে কী নতুন (অ্যাপের আপডেট ডায়ালগে দেখাবে)'
+        type: string
+        default: ''
 
 permissions:
   contents: write # ট্যাগ থেকে GitHub Release তৈরির জন্য
@@ -24,6 +37,8 @@ jobs:
       ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
       ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
       ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      # আলাদা পাবলিক রিপো, যেখানে APK, README.md ও version.json যায়।
+      RELEASES_REPO: ${{ vars.RELEASES_REPO || format('{0}/hps-connect-releases', github.repository_owner) }}
 
     steps:
       - uses: actions/checkout@v4
@@ -72,20 +87,25 @@ jobs:
         run: |
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             NAME="${GITHUB_REF_NAME#v}"
+          elif [ -n "$INPUT_VERSION" ]; then
+            NAME="${INPUT_VERSION#v}"
           else
             NAME="$(grep '^version:' pubspec.yaml | sed 's/version: *//; s/+.*//')"
           fi
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
           echo "code=${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          echo "defines=--dart-define=APP_VERSION=$NAME --dart-define=APP_BUILD_NUMBER=${{ github.run_number }} --dart-define=UPDATE_URL=https://raw.githubusercontent.com/$RELEASES_REPO/main/version.json" >> "$GITHUB_OUTPUT"
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
 
       - name: Build debug APK
-        run: flutter build apk --debug --build-name=${{ steps.version.outputs.name }} --build-number=${{ steps.version.outputs.code }}
+        run: flutter build apk --debug --build-name=${{ steps.version.outputs.name }} --build-number=${{ steps.version.outputs.code }} ${{ steps.version.outputs.defines }}
 
       - name: Build release APK
-        run: flutter build apk --release --build-name=${{ steps.version.outputs.name }} --build-number=${{ steps.version.outputs.code }}
+        run: flutter build apk --release --build-name=${{ steps.version.outputs.name }} --build-number=${{ steps.version.outputs.code }} ${{ steps.version.outputs.defines }}
 
       - name: Build release AAB (Google Play)
-        run: flutter build appbundle --release --build-name=${{ steps.version.outputs.name }} --build-number=${{ steps.version.outputs.code }}
+        run: flutter build appbundle --release --build-name=${{ steps.version.outputs.name }} --build-number=${{ steps.version.outputs.code }} ${{ steps.version.outputs.defines }}
 
       - name: Rename outputs
         run: |
@@ -108,6 +128,76 @@ jobs:
           files: dist/*
           generate_release_notes: true
 
+      - name: Publish to releases repo (APK, README.md, version.json)
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publish)
+        env:
+          RELEASES_REPO_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
+          VERSION: ${{ steps.version.outputs.name }}
+          BUILD_NUMBER: ${{ steps.version.outputs.code }}
+          INPUT_NOTES: ${{ inputs.release_notes }}
+        run: |
+          set -euo pipefail
+          if [ -z "$RELEASES_REPO_TOKEN" ]; then
+            echo "::warning::RELEASES_REPO_TOKEN secret নেই, তাই $RELEASES_REPO রিপোতে APK পাঠানো হলো না।"
+            exit 0
+          fi
+
+          APK="dist/hps-connect-$VERSION-release.apk"
+          SIZE=$(stat -c %s "$APK")
+          if [ "$SIZE" -gt 99000000 ]; then
+            echo "::error::APK ${SIZE} বাইট, GitHub-এ ১০০ MB-এর বড় ফাইল রাখা যায় না।"
+            exit 1
+          fi
+
+          NOTES="$INPUT_NOTES"
+          if [ -z "$NOTES" ]; then NOTES="$(git log -1 --pretty=%s)"; fi
+
+          git clone "https://x-access-token:${RELEASES_REPO_TOKEN}@github.com/${RELEASES_REPO}.git" releases-repo
+          cd releases-repo
+          # নতুন খালি রিপো হলে main ব্রাঞ্চ দিয়ে শুরু।
+          git rev-parse --verify HEAD >/dev/null 2>&1 || git symbolic-ref HEAD refs/heads/main
+          BRANCH="$(git symbolic-ref --short HEAD)"
+
+          BASE="https://github.com/${RELEASES_REPO}/raw/${BRANCH}"
+          cp "../$APK" "HPS-Connect-$VERSION.apk"
+          cp "../$APK" "HPS-Connect-latest.apk"
+
+          jq -n \
+            --arg version "$VERSION" \
+            --argjson build "$BUILD_NUMBER" \
+            --arg apk "$BASE/HPS-Connect-$VERSION.apk" \
+            --arg latest "$BASE/HPS-Connect-latest.apk" \
+            --arg notes "$NOTES" \
+            --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{version: $version, build_number: $build, apk_url: $apk, latest_apk_url: $latest, release_notes: $notes, released_at: $date}' \
+            > version.json
+
+          {
+            echo "# এইচপিএস কানেক্ট — অ্যাপ ডাউনলোড"
+            echo
+            echo "সর্বশেষ অ্যাপ: [HPS-Connect-latest.apk]($BASE/HPS-Connect-latest.apk) (v$VERSION)"
+            echo
+            echo "হেরিটেজ পাবলিক স্কুল, ফরিদপুর-এর শিক্ষক ও স্টাফদের যোগাযোগ অ্যাপ।"
+            echo "ফোনে লিংকটি খুলে APK নামিয়ে ইনস্টল করুন (প্রথমবার \"Install unknown apps\" অনুমতি দিতে হতে পারে)।"
+            echo
+            echo "## এই ভার্সনে নতুন"
+            echo
+            echo "$NOTES"
+            echo
+            echo "## সব ভার্সন"
+            echo
+            ls HPS-Connect-*.apk | grep -v latest | sort -Vr | while read -r f; do
+              echo "- [$f]($BASE/$f)"
+            done
+          } > README.md
+
+          git config user.name "build-bot"
+          git config user.email "build-bot@users.noreply.github.com"
+          git add -A
+          git commit -m "Release $VERSION"
+          git push origin "HEAD:$BRANCH"
+          echo "### প্রকাশিত: https://github.com/${RELEASES_REPO} (v$VERSION)" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Remove secrets from runner
         if: always()
-        run: rm -f android/app/google-services.json android/app/upload-keystore.jks android/key.properties
+        run: rm -rf android/app/google-services.json android/app/upload-keystore.jks android/key.properties releases-repo
