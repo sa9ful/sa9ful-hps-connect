@@ -60,7 +60,7 @@ jobs:
             echo "$GOOGLE_SERVICES_JSON_BASE64" | base64 --decode > android/app/google-services.json
             echo "google-services.json যোগ হয়েছে।"
           else
-            echo "::warning::GOOGLE_SERVICES_JSON_BASE64 secret নেই। APK তৈরি হবে, কিন্তু অ্যাপে Firebase কাজ করবে না।"
+            echo "রিপোর android/app/google-services.json (Firebase প্রজেক্ট hps-connect-38a5e) ব্যবহার হবে।"
           fi
 
       - name: Release signing (keystore)
@@ -205,4 +205,4 @@ jobs:
 
       - name: Remove secrets from runner
         if: always()
-        run: rm -rf android/app/google-services.json android/app/upload-keystore.jks android/key.properties releases-repo
+        run: rm -rf android/app/upload-keystore.jks android/key.properties releases-repo
